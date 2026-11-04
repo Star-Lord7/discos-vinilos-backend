@@ -47,4 +47,9 @@ export class CategoriesController {
   remove(@Param('id') id: string) {
     return this.categoriesService.remove(id);
   }
+
+  @Get(':id/genres')
+  findGenres(@Param('id') id: string) {
+    return this.categoriesService.findGenres(id);
+  }
 }

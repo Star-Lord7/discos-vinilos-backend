@@ -18,6 +18,7 @@ export class GenresService {
         data: {
           name: createGenreDto.name,
           description: createGenreDto.description,
+          categoryId: createGenreDto.categoryId,
         },
       });
       return {

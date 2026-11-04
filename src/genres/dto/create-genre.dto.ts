@@ -10,4 +10,8 @@ export class CreateGenreDto {
   @IsOptional()
   @MinLength(3)
   description?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  categoryId: string;
 }

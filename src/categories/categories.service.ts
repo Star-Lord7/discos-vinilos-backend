@@ -126,6 +126,22 @@ export class CategoriesService {
     }
   }
 
+  async findGenres(id: string) {
+    await this.findOne(id);
+
+    return this.prisma.genre.findMany({
+      where: {
+        categoryId: id,
+      },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        active: true,
+      },
+    });
+  }
+
   private handleDBExceptions(error: any) {
     if (error.code === 'P2002')
       throw new ConflictException('La categoria ya existe en la base de datos');
