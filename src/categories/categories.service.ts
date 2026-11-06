@@ -82,6 +82,13 @@ export class CategoriesService {
         recordLabel: true,
         catalogCode: true,
         active: true,
+        images: {
+          select: {
+            id: true,
+            url: true,
+            isPrimary: true,
+          },
+        },
       },
     });
   }
