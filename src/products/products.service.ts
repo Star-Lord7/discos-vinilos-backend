@@ -3,6 +3,8 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  BadRequestException,
+  HttpException,
 } from '@nestjs/common';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -10,6 +12,7 @@ import { PrismaService } from 'src/database/prisma.service';
 import { GenresService } from 'src/genres/genres.service';
 import { ArtistsService } from 'src/artists/artists.service';
 import { CategoriesService } from 'src/categories/categories.service';
+import { unlink } from 'fs/promises';
 
 @Injectable()
 export class ProductsService {
@@ -20,12 +23,33 @@ export class ProductsService {
     private readonly genresService: GenresService,
   ) {}
 
-  async create(createProductDto: CreateProductDto) {
+  async create(createProductDto: CreateProductDto, image: Express.Multer.File) {
     try {
+      // Verificar que las relaciones existan
       await this.categoriesService.findOne(createProductDto.categoryId);
       await this.artistsService.findOne(createProductDto.artistId);
       await this.genresService.findOne(createProductDto.genreId);
 
+      // Verificar que el género pertenezca a la categoría
+      const genre = await this.prisma.genre.findUnique({
+        where: {
+          id: createProductDto.genreId,
+        },
+        select: {
+          categoryId: true,
+        },
+      });
+
+      if (genre?.categoryId !== createProductDto.categoryId) {
+        throw new BadRequestException(
+          'El género seleccionado no pertenece a la categoría indicada',
+        );
+      }
+
+      // Generar la URL de la imagen
+      const imageUrl = `/uploads/products/${image.filename}`;
+
+      // Crear producto e imagen en una sola operación
       const newProduct = await this.prisma.product.create({
         data: {
           name: createProductDto.name,
@@ -40,8 +64,21 @@ export class ProductsService {
           categoryId: createProductDto.categoryId,
           artistId: createProductDto.artistId,
           genreId: createProductDto.genreId,
+
+          images: {
+            create: {
+              url: imageUrl,
+              isPrimary: true,
+              order: 0,
+            },
+          },
+        },
+
+        include: {
+          images: true,
         },
       });
+
       return {
         message: 'Producto creado correctamente',
         data: {
@@ -58,9 +95,19 @@ export class ProductsService {
           categoryId: newProduct.categoryId,
           artistId: newProduct.artistId,
           genreId: newProduct.genreId,
+          images: newProduct.images,
         },
       };
     } catch (error) {
+      // Eliminar la imagen si no se pudo crear el producto
+      if (image?.path) {
+        try {
+          await unlink(image.path);
+        } catch (fileError) {
+          console.error('No se pudo eliminar la imagen:', fileError);
+        }
+      }
+
       this.handleDBExceptions(error);
     }
   }
@@ -79,6 +126,13 @@ export class ProductsService {
         recordLabel: true,
         catalogCode: true,
         active: true,
+        images: {
+          select: {
+            id: true,
+            url: true,
+            isPrimary: true,
+          },
+        },
         category: {
           select: {
             id: true,
@@ -115,6 +169,13 @@ export class ProductsService {
         recordLabel: true,
         catalogCode: true,
         active: true,
+        images: {
+          select: {
+            id: true,
+            url: true,
+            isPrimary: true,
+          },
+        },
         category: {
           select: {
             name: true,
@@ -186,14 +247,21 @@ export class ProductsService {
     }
   }
 
-  private handleDBExceptions(error: any) {
-    if (error.code === 'P2002')
+  private handleDBExceptions(error: any): never {
+    if (error instanceof HttpException) {
+      throw error;
+    }
+
+    if (error.code === 'P2002') {
       throw new ConflictException('El producto ya existe en la base de datos');
+    }
 
     if (error.code === 'P2025') {
       throw new NotFoundException('Producto no encontrado');
     }
-    // this.logger.error(error);
+
+    console.error(error);
+
     throw new InternalServerErrorException(
       'Error inesperado, revisar logs del servidor',
     );

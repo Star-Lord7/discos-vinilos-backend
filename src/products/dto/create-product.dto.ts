@@ -9,6 +9,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { ProductFormat } from 'src/generated/prisma/enums';
+import { Type } from 'class-transformer';
 
 export class CreateProductDto {
   @IsString()
@@ -26,16 +27,19 @@ export class CreateProductDto {
   @MinLength(3)
   description: string;
 
+  @Type(() => Number)
   @IsNumber()
   @IsNotEmpty()
   @Min(0)
   price: number;
 
+  @Type(() => Number)
   @IsNumber()
   @IsNotEmpty()
   @Min(0)
   stock: number;
 
+  @Type(() => Number)
   @IsNumber()
   @IsOptional()
   @Min(1900)
