@@ -12,18 +12,37 @@ import { PrismaService } from 'src/database/prisma.service';
 import { GenresService } from 'src/genres/genres.service';
 import { ArtistsService } from 'src/artists/artists.service';
 import { CategoriesService } from 'src/categories/categories.service';
-import { unlink } from 'fs/promises';
+import { randomUUID } from 'node:crypto';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 @Injectable()
 export class ProductsService {
+  private readonly supabase: SupabaseClient;
+  private readonly bucket = 'portadas';
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly categoriesService: CategoriesService,
     private readonly artistsService: ArtistsService,
     private readonly genresService: GenresService,
-  ) {}
+  ) {
+    const url = process.env.SUPABASE_URL;
+    const secretKey = process.env.SUPABASE_SECRET_KEY;
+
+    if (!url || !secretKey) {
+      throw new Error('Falta SUPABASE_URL o SUPABASE_SECRET_KEY en el backend');
+    }
+
+    this.supabase = createClient(url, secretKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+  }
 
   async create(createProductDto: CreateProductDto, image: Express.Multer.File) {
+    let uploadedPath: string | undefined;
     try {
       // Verificar que las relaciones existan
       await this.categoriesService.findOne(createProductDto.categoryId);
@@ -47,7 +66,9 @@ export class ProductsService {
       }
 
       // Generar la URL de la imagen
-      const imageUrl = `/uploads/products/${image.filename}`;
+      const cover = await this.uploadCover(image);
+      uploadedPath = cover.path;
+      const imageUrl = cover.url;
 
       // Crear producto e imagen en una sola operación
       const newProduct = await this.prisma.product.create({
@@ -79,6 +100,8 @@ export class ProductsService {
         },
       });
 
+      uploadedPath = undefined;
+
       return {
         message: 'Producto creado correctamente',
         data: {
@@ -99,17 +122,60 @@ export class ProductsService {
         },
       };
     } catch (error) {
-      // Eliminar la imagen si no se pudo crear el producto
-      if (image?.path) {
+      if (uploadedPath) {
         try {
-          await unlink(image.path);
-        } catch (fileError) {
-          console.error('No se pudo eliminar la imagen:', fileError);
+          const { error: cleanupError } = await this.supabase.storage
+            .from(this.bucket)
+            .remove([uploadedPath]);
+
+          if (cleanupError) {
+            console.error(
+              'No se pudo limpiar la portada:',
+              uploadedPath,
+              cleanupError.message,
+            );
+          }
+        } catch (cleanupError) {
+          console.error(
+            'Falló la limpieza de la portada:',
+            uploadedPath,
+            cleanupError,
+          );
         }
       }
 
       this.handleDBExceptions(error);
     }
+  }
+
+  private async uploadCover(image: Express.Multer.File) {
+    const extensions: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    };
+
+    const extension = extensions[image.mimetype];
+
+    if (!extension || !image.buffer?.length) {
+      throw new BadRequestException('Envía una portada JPG, PNG o WebP válida');
+    }
+
+    const path = `products/${randomUUID()}.${extension}`;
+    const bucket = this.supabase.storage.from(this.bucket);
+
+    const { error } = await bucket.upload(path, image.buffer, {
+      contentType: image.mimetype,
+      upsert: false,
+    });
+
+    if (error) {
+      console.error('Error al subir la portada:', error.message);
+      throw new InternalServerErrorException('No se pudo subir la portada');
+    }
+
+    const { data } = bucket.getPublicUrl(path);
+    return { path, url: data.publicUrl };
   }
 
   async findAll() {
@@ -154,6 +220,7 @@ export class ProductsService {
       },
     });
   }
+
   async findOne(id: string) {
     const product = await this.prisma.product.findUnique({
       where: { id },

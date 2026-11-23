@@ -83,6 +83,7 @@ export class ArtistsService {
         recordLabel: true,
         catalogCode: true,
         active: true,
+        artist: { select: { id: true, name: true } },
         images: {
           select: {
             id: true,
