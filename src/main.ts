@@ -17,7 +17,10 @@ async function bootstrap() {
     }),
   );
   app.enableCors({
-    origin: 'http://localhost:5173',
+    origin: [
+      'http://localhost:5173',
+      'https://discos-vinilos-frontend.vercel.app',
+    ],
     credentials: true,
   });
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
